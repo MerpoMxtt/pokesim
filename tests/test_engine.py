@@ -10,7 +10,7 @@ import pytest
 from pokesim.engine import (
     Move, Pokemon, BattleResult,
     _calc_damage, _goes_first, _apply_eot, _bucket,
-    run, LEVEL,
+    run, LEVEL, BUCKET_COUNT,
 )
 from pokesim.data import fetch_pokemon, fetch_move
 
@@ -210,14 +210,14 @@ class TestApplyEot:
 
 class TestBucket:
     def test_full_hp_gives_max_bucket(self):
-        assert _bucket(200, 200) == 20
+        assert _bucket(200, 200) == BUCKET_COUNT
 
     def test_zero_hp_gives_zero(self):
         assert _bucket(0, 200) == 0
 
     def test_half_hp_midpoint(self):
         b = _bucket(100, 200)
-        assert 9 <= b <= 11
+        assert BUCKET_COUNT // 2 - 2 <= b <= BUCKET_COUNT // 2 + 2
 
     def test_negative_hp_gives_zero(self):
         assert _bucket(-5, 200) == 0

@@ -254,12 +254,27 @@ def maybe_swap_moves(pdata: dict) -> list[dict]:
     Returns original moves unchanged if user declines.
     """
     # Build the default moveset from pdata
-    default_slugs = pdata["moves"][:4]
-    current_moves = [fetch_move(s) for s in default_slugs if fetch_move(s)]
+    # Build default moveset: prefer damaging moves over pure status moves,
+    # then fill remaining slots with the best status moves available.
+    all_move_data = [(s, fetch_move(s)) for s in pdata["moves"] if fetch_move(s)]
 
-    # Pad to 4 if fewer moves available
-    while len(current_moves) < 4:
-        current_moves.append(fetch_move("quick-attack"))
+    # Split into damaging (power > 0) and status (power == 0)
+    damaging = [(s, m) for s, m in all_move_data if m.get("power", 0) > 0]
+    status   = [(s, m) for s, m in all_move_data if m.get("power", 0) == 0]
+
+    # Sort damaging by power descending, pick top 4
+    damaging.sort(key=lambda x: x[1].get("power", 0), reverse=True)
+    selected = damaging[:4]
+
+    # If fewer than 4 damaging moves, fill with status moves
+    if len(selected) < 4:
+        selected += status[:4 - len(selected)]
+
+    # If still fewer than 4, pad with quick-attack
+    while len(selected) < 4:
+        selected.append(("quick-attack", fetch_move("quick-attack")))
+
+    current_moves = [m for _, m in selected]
 
     print()
     if not _confirm(f"Would you like to change any of {pdata['name'].title()}'s moves?"):
