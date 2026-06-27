@@ -1,9 +1,5 @@
 """Entry point - allows python3 -m pokesim."""
-
-
-def main():
-    print("pokesim - coming soon.")
-
+from pokesim.cli import main
 
 if __name__ == "__main__":
     main()
