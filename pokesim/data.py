@@ -441,3 +441,32 @@ def list_bundled_pokemon() -> list[str]:
 def list_bundled_moves() -> list[str]:
     """Return sorted list of move slugs with bundled data."""
     return sorted(_BUNDLED_MOVES.keys())
+
+
+# Cache for the full Pokemon name list fetched from PokeAPI
+_ALL_POKEMON_NAMES: list[str] | None = None
+
+
+def fetch_all_pokemon_names() -> list[str]:
+    """
+    Return a sorted list of all Pokemon names available.
+
+    If PokéAPI is reachable, fetches the full roster (~1300 Pokemon).
+    Falls back to the 15 bundled names if offline.
+    Result is cached after the first call.
+    """
+    global _ALL_POKEMON_NAMES
+    if _ALL_POKEMON_NAMES is not None:
+        return _ALL_POKEMON_NAMES
+
+    if api_available():
+        # Fetch all names in one request (limit=10000 returns everything)
+        data = _get(f"{_BASE_URL}/pokemon?limit=10000&offset=0")
+        if data and "results" in data:
+            names = sorted(r["name"] for r in data["results"])
+            _ALL_POKEMON_NAMES = names
+            return _ALL_POKEMON_NAMES
+
+    # Offline fallback
+    _ALL_POKEMON_NAMES = list_bundled_pokemon()
+    return _ALL_POKEMON_NAMES

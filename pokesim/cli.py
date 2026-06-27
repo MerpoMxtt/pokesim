@@ -21,6 +21,7 @@ import threading
 from pokesim.data import (
     fetch_pokemon,
     fetch_move,
+    fetch_all_pokemon_names,
     list_bundled_pokemon,
     api_available,
     type_multiplier,
@@ -192,55 +193,121 @@ def _print_move_row(idx: int | None, mdata: dict):
 # Pokemon picker
 # ---------------------------------------------------------------------------
 
+PAGE_SIZE = 20   # Pokemon per page in the browser
+
+
+def _show_pokemon_page(names: list[str], page: int) -> int:
+    """
+    Print one page of the Pokemon list. Returns total page count.
+    """
+    total_pages = max(1, -(-len(names) // PAGE_SIZE))   # ceiling division
+    page        = max(0, min(page, total_pages - 1))    # clamp
+
+    start = page * PAGE_SIZE
+    chunk = names[start:start + PAGE_SIZE]
+
+    print()
+    _divider()
+    print(
+        col(BOLD, f"  Pokemon Browser") +
+        col(DIM,  f"  —  page {page + 1}/{total_pages}  ({len(names)} total)")
+    )
+    _divider()
+    print()
+
+    # Two-column layout
+    mid = -(-len(chunk) // 2)   # ceiling half
+    left_col  = chunk[:mid]
+    right_col = chunk[mid:]
+
+    for i, name in enumerate(left_col):
+        num_l  = start + i + 1
+        left   = f"  {col(Y, f'[{num_l}]')}  {name.title():<18}"
+        if i < len(right_col):
+            num_r  = start + mid + i + 1
+            right  = f"  {col(Y, f'[{num_r}]')}  {right_col[i].title()}"
+        else:
+            right  = ""
+        print(left + right)
+
+    print()
+    print(
+        col(DIM, "  [a] prev page") +
+        col(DIM, "   [d] next page") +
+        col(DIM, "   [number] select") +
+        col(DIM, "   or type a name")
+    )
+    _divider()
+    return total_pages
+
+
 def pick_pokemon(slot: str) -> dict:
     """
-    Interactively pick a Pokemon. Returns raw pdata dict.
-    Loops until a valid Pokemon is found.
+    Interactively pick a Pokemon using a paginated browser.
+
+    Controls
+    --------
+    a / d       — previous / next page
+    number      — select Pokemon by list number
+    name        — type any Pokemon name directly (skips browser)
     """
-    bundled = list_bundled_pokemon()
+    print()
+    _info(f"Loading Pokemon list...")
+    all_names   = fetch_all_pokemon_names()
+    page        = 0
+    total_pages = _show_pokemon_page(all_names, page)
 
     while True:
-        print()
-        _divider()
-        print(col(BOLD, f"  Choose Pokemon {slot}"))
-        _divider()
+        raw = _ask(f"Pokemon {slot}").strip().lower()
 
-        if not api_available():
-            print(col(Y, "\n  (offline - showing bundled Pokemon only)\n"))
-            for i, name in enumerate(bundled):
-                print(col(Y, f"  [{i+1}]") + f"  {name.title()}")
-            choice = _pick_number("Enter number", 1, len(bundled))
-            name = bundled[choice - 1]
+        # Navigation
+        if raw == "a":
+            page = max(0, page - 1)
+            total_pages = _show_pokemon_page(all_names, page)
+            continue
+        if raw == "d":
+            page = min(total_pages - 1, page + 1)
+            total_pages = _show_pokemon_page(all_names, page)
+            continue
+
+        # Number selection
+        if raw.isdigit():
+            idx = int(raw) - 1
+            if 0 <= idx < len(all_names):
+                name = all_names[idx]
+            else:
+                _err(f"Enter a number between 1 and {len(all_names)}.")
+                continue
         else:
-            print(col(DIM, "\n  Type a Pokemon name, or 'list' to see built-in options.\n"))
-            raw = _ask("Pokemon name").lower()
-
-            if raw == "list":
-                print()
-                for i, name in enumerate(bundled):
-                    print(col(Y, f"  [{i+1}]") + f"  {name.title()}")
-                print()
-                raw = _ask("Enter number or name").lower()
-                if raw.isdigit():
-                    idx = int(raw) - 1
-                    if 0 <= idx < len(bundled):
-                        raw = bundled[idx]
-                    else:
-                        _err("Invalid number.")
-                        continue
+            # Typed name — search for closest match
             name = raw
+            # Fuzzy-ish: check if it's a substring of any known name
+            if name not in all_names:
+                matches = [n for n in all_names if n.startswith(name)]
+                if len(matches) == 1:
+                    name = matches[0]
+                    _info(f"Matched: {name.title()}")
+                elif len(matches) > 1:
+                    _info(f"Multiple matches: {', '.join(m.title() for m in matches[:8])}"
+                          + ("..." if len(matches) > 8 else ""))
+                    name = _ask("Which one? (type full name)").strip().lower()
 
         _info(f"Looking up {name.title()}...")
         pdata = fetch_pokemon(name)
 
         if pdata is None:
             _err(f"'{name}' not found. Try again.")
+            total_pages = _show_pokemon_page(all_names, page)
             continue
 
         _print_pokemon_card(pdata["name"], pdata, pdata["moves"])
 
         if _confirm("Use this Pokemon?"):
             return pdata
+
+        # Declined — redisplay the page
+        total_pages = _show_pokemon_page(all_names, page)
+
 
 # ---------------------------------------------------------------------------
 # Move swap flow
