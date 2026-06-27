@@ -246,31 +246,44 @@ def pick_pokemon(slot: str) -> dict:
 # Move swap flow
 # ---------------------------------------------------------------------------
 
-def maybe_swap_moves(pdata: dict) -> list[dict]:
+def maybe_swap_moves(pdata: dict, opponent_pdata: dict | None = None) -> list[dict]:
     """
     Ask if the user wants to change moves.
     Goes through each of the 4 slots one by one.
+    opponent_pdata: if provided, default move selection accounts for type matchups.
     Returns a list of 4 move dicts (the final chosen moveset).
     Returns original moves unchanged if user declines.
     """
     # Build the default moveset from pdata
-    # Build default moveset: prefer damaging moves over pure status moves,
-    # then fill remaining slots with the best status moves available.
+    # Build default moveset.
+    # Prefer moves that actually deal damage vs the opponent's typing,
+    # sorted by effective power (base power x type multiplier).
+    # Falls back to raw power if opponent types are unknown.
     all_move_data = [(s, fetch_move(s)) for s in pdata["moves"] if fetch_move(s)]
 
-    # Split into damaging (power > 0) and status (power == 0)
+    opponent_types = opponent_pdata["types"] if opponent_pdata else []
+
+    def effective_power(move_dict: dict) -> float:
+        """Base power weighted by type effectiveness vs the opponent."""
+        power = move_dict.get("power", 0)
+        if power == 0:
+            return 0.0
+        if opponent_types:
+            eff = type_multiplier(move_dict.get("type", "normal"), opponent_types)
+        else:
+            eff = 1.0
+        return power * eff
+
     damaging = [(s, m) for s, m in all_move_data if m.get("power", 0) > 0]
     status   = [(s, m) for s, m in all_move_data if m.get("power", 0) == 0]
 
-    # Sort damaging by power descending, pick top 4
-    damaging.sort(key=lambda x: x[1].get("power", 0), reverse=True)
+    # Sort by effective power descending (accounts for immunities and resistances)
+    damaging.sort(key=lambda x: effective_power(x[1]), reverse=True)
     selected = damaging[:4]
 
-    # If fewer than 4 damaging moves, fill with status moves
     if len(selected) < 4:
         selected += status[:4 - len(selected)]
 
-    # If still fewer than 4, pad with quick-attack
     while len(selected) < 4:
         selected.append(("quick-attack", fetch_move("quick-attack")))
 
@@ -434,13 +447,15 @@ def stat_only_flow():
 def full_sim_flow():
     _header("FULL SIMULATION")
 
-    # Pokemon A
+    # Pokemon A (opponent not yet known, use global best moves)
     p1_data  = pick_pokemon("A")
-    p1_moves = maybe_swap_moves(p1_data)
 
     # Pokemon B
     p2_data  = pick_pokemon("B")
-    p2_moves = maybe_swap_moves(p2_data)
+
+    # Now both are known — build movesets with opponent type awareness
+    p1_moves = maybe_swap_moves(p1_data, opponent_pdata=p2_data)
+    p2_moves = maybe_swap_moves(p2_data, opponent_pdata=p1_data)
 
     # Build specs
     p1spec = Pokemon.from_dict(
